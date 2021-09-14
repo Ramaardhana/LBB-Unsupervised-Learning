@@ -1,0 +1,189 @@
+---
+title: "Exercise for Unsupervised Learning"
+author: "Your Name"
+date: "`r format(Sys.Date(), '%B %e, %Y')`"
+output:
+  html_document:
+    number_sections: true
+    df_print: paged
+    highlight: tango
+    theme: cosmo
+    toc: yes
+    toc_depth: 4
+    toc_float:
+      collapsed: true
+  pdf_document:
+    toc: yes
+  word_document:
+    toc: yes
+---
+
+```{r setup, include=FALSE}
+# clear-up the environment
+rm(list = ls())
+
+# chunk options
+knitr::opts_chunk$set(
+  message = FALSE,
+  warning = FALSE,
+  fig.align = "center",
+  comment = "#>"
+)
+
+options(scipen = 999)
+```
+
+```{r}
+library(dplyr)
+library(FactoMineR)
+library(factoextra)
+library(ggiraphExtra)
+```
+
+
+# Business Question
+
+Anda bekerja sebagai data scientist di salah satu perusahaan wholesale. Perusahaan tersebut memiliki data pembelian ragam tipe produk dari masing-masing customer, silahkan gunakan file yang terdapat pada `data_input/wholesale.csv`. Dari data tersebut, ingin dilakukan segmentasi customer berdasarkan karakteristik pembelian dengan begitu penawaran produk lebih tepat sasaran. Manfaatkanlah pengetahuan Anda terkait PCA dan K-means clustering untuk melakukan segmentasi customer!
+
+# Read Data
+
+```{r}
+wholesale <- read.csv("data_input/wholesale.csv")
+wholesale
+```
+
+Deskripsi kolom:
+
+- `Channel`: Horeca (hotel, restaurant, cafe) / Retail
+- `Region`: Lokasi branch perusahaan wholesale
+- `Fresh`, `Milk`, `Grocery`, `Frozen`, `Detergents_Paper`, `Delicassen`: jumlah pembelian untuk masing-masing tipe produk 
+
+# Data Cleansing
+
+```{r}
+wholesale <- wholesale %>% mutate(Channel=as.factor(Channel),
+                                  Region=as.factor(Region))
+wholesale %>% head()
+```
+# EDA
+
+cek missing value pada data?
+```{r}
+# your code here
+colSums(is.na(wholesale))
+```
+
+# Outlier Detection
+
+Sebelum melakukan clustering, mari lihat apakah terdapat outlier pada data. Outlier akan sangat mempengaruhi hasil k-means clustering sehingga akan lebih baik bila kita menghilangkan terlebih dahulu outlier dari data. Outlier dapat divisualisasikan dengan biplot dari hasil PCA.
+
+## Definisikan variabel kategorik
+
+```{r}
+qualivar <- c(1,2)
+```
+
+## PCA
+
+Gunakan `PCA()` dari library `FactoMineR`, dan jangan lupa lakukan scalling
+
+```{r}
+wholesale_pca <- PCA(X = wholesale, #dataframe
+                scale.unit = T, #lakukan scalling
+                quali.sup = qualivar, #index data factor
+                graph = F, #tidak menampilkan plot
+                ncp = 6)
+summary(wholesale_pca)
+```
+Dari hasil perolehan PCA diatas, apabila kita bermaksud untuk mentoleransi data yang hilang sebesar 20% maka *PC* yang dibutuhkan ada 3 (dim 1-3).  
+
+
+## Visualize
+
+
+```{r}
+# your code here
+plot.PCA(x = wholesale_pca,
+         choix = "ind", #plot individual (observasi)
+         invisible = "quali",# menghilangkan label kolom data kategori
+         select = "contrib10", # menampilkan index 5 outlier terluar
+         habillage = 1) #memisahkan plot poin berdasar kolom 1
+```
+
+```{r}
+wholesale[c(),]
+```
+- sertakan variabel Channel pada visualisasi, insight apa yang dapat diperoleh? Bagaimana karakteristik pembelian produk untuk customerID (index baris) 86? 
+```{r}
+fviz_pca_biplot(wholesale_pca, habillage = 1)
+```
+Dari visualisasi diatas, didapat:
+-PC1 banyak dipengaruhi oleh variabel *Milk*, *Grocery*, *Detergents_Paper*
+-PC1 banyak dipengaruhi oleh variabel *Frozen*,*Fresh*, *Delicassen*.
+-dari 10 outlier yg dipantau: *ID 182,184,326* memiliki nilai variabel *Frozen*,*Fresh*, *Delicassen* yang besar.
+-7 outlier lainnya (*ID 24,48,62,66,86,87*) memilik nilai variabel *Milk*, *Grocery*, *Detergents_Paper*.
+-*channel 1* (hotel, restaurant, cafe) dicirikan oleh pembelian *Frozen*,*Fresh*, *Delicassen* yang lebih besar.
+-*channel 2* (Retail) dicirikan oleh pembelian *Milk*, *Grocery*, *Detergents_Paper* yang lebih besar.
+
+
+# Clustering
+```{r}
+#Menghilangkan outlier
+ws_no_outlier <-wholesale[-184,]
+```
+
+```{r}
+# mengambil hanya data numerik
+wholesale2<-ws_no_outlier %>% select_if(is.numeric)
+```
+
+```{r}
+wholescale_z<-wholesale2 %>% scale() #Melakukan scaling
+```
+
+
+```{r}
+#memilih nilai K optimum
+fviz_nbclust(x = wholescale_z, FUNcluster = kmeans, method = "wss")
+```
+Nilai K yang digunakan adalah: 5
+
+#K-means Clustering
+```{r}
+RNGkind(sample.kind = "Rounding")
+set.seed(100)
+
+# your code here
+wholesale_kmeans <-kmeans(x = wholescale_z, centers = 5)
+```
+
+## Cluster Profiling
+Kembalikan label cluster masing-masing observasi ke data awal sebelum di-scale, namun yang outliernya sudah di-hilangkan (ws_no_outlier)
+
+```{r}
+# your code here
+ws_no_outlier$cluster<-wholesale_kmeans$cluster
+
+# melakukan profiling dengan summarise data
+ws_no_outlier %>% 
+  group_by(cluster) %>% 
+  summarise_all(mean)
+```
+```{r}
+library(ggiraphExtra)
+ggRadar(ws_no_outlier,
+        mapping = aes(colour=cluster),
+        interactive = T)
+```
+
+**Profiling:** 
+
+- Cluster 1: Memiliki nilai yg sangat tinggi pada variabel *Delicassen, Fresh, Frozen*,dan    variabel *Milk* ke-2 terbesar dibawah cluster 4
+- Cluster 2: Memiliki nilai yg cukup tinggi pada variabel *Fresh* (dibawah Cluster 1)
+- Cluster 3: Memiliki nilai yg sangat kecil di hampir semua variabel kecuali *Detergents_Paper*
+- Cluster 4: Memiliki nilai yg sangat tinggi pada variabel *Detergents_Paper,Milk, Grocery*, dan    variabel *Delicassen* ke-2 terbesar dibawah cluster 1
+- Cluster 5: Memiliki nilai yg paling kecil di variabel *Fresh dan Frozen*
+
+
+
+
